@@ -39,14 +39,21 @@ import (
 //
 //	2009/01/23 01:23:23.123123 /a/b/c/d.go:23: message
 const (
-	Ldate         = 1 << iota     // the date in the local time zone: 2009/01/23
-	Ltime                         // the time in the local time zone: 01:23:23
-	Lmicroseconds                 // microsecond resolution: 01:23:23.123123.  assumes Ltime.
-	Llongfile                     // full file name and line number: /a/b/c/d.go:23
-	Lshortfile                    // final file name element and line number: d.go:23. overrides Llongfile
-	LUTC                          // if Ldate or Ltime is set, use UTC rather than the local time zone
-	Lmsgprefix                    // move the "prefix" from the beginning of the line to before the message
-	LstdFlags     = Ldate | Ltime // initial values for the standard logger
+	//日期
+	Ldate = 1 << iota // the date in the local time zone: 2009/01/23
+	//时间
+	Ltime // the time in the local time zone: 01:23:23
+	//微妙级别的时间
+	Lmicroseconds // microsecond resolution: 01:23:23.123123.  assumes Ltime.
+	//~表示输出调用的各个文件+行号
+	Llongfile // full file name and line number: /a/b/c/d.go:23
+	//~表示输出当前的文件+行号
+	Lshortfile // final file name element and line number: d.go:23. overrides Llongfile
+	//时区
+	LUTC       // if Ldate or Ltime is set, use UTC rather than the local time zone
+	Lmsgprefix // move the "prefix" from the beginning of the line to before the message
+	//组合成所谓标准flag，包括日期和时间
+	LstdFlags = Ldate | Ltime // initial values for the standard logger
 )
 
 // A Logger represents an active logging object that generates lines of
@@ -87,6 +94,7 @@ func (l *Logger) SetOutput(w io.Writer) {
 	atomic.StoreInt32(&l.isDiscard, isDiscard)
 }
 
+// ~有一个默认的logger对象。使用了标准的flag
 var std = New(os.Stderr, "", LstdFlags)
 
 // Default returns the standard logger used by the package-level output functions.
@@ -172,12 +180,14 @@ func (l *Logger) formatHeader(buf *[]byte, t time.Time, file string, line int) {
 // already a newline. Calldepth is used to recover the PC and is
 // provided for generality, although at the moment on all pre-defined
 // paths it will be 2.
+// 核心函数
 func (l *Logger) Output(calldepth int, s string) error {
 	now := time.Now() // get this early.
 	var file string
 	var line int
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	//~ calldepth只有在short或long file的时候才使用
 	if l.flag&(Lshortfile|Llongfile) != 0 {
 		// Release lock while getting caller info - it's expensive.
 		l.mu.Unlock()
@@ -201,6 +211,8 @@ func (l *Logger) Output(calldepth int, s string) error {
 
 // Printf calls l.Output to print to the logger.
 // Arguments are handled in the manner of fmt.Printf.
+// ~他是把log分为了print，而不是一般我们用的info warn error、
+// ~封装output，本质调用了上面的output
 func (l *Logger) Printf(format string, v ...any) {
 	if atomic.LoadInt32(&l.isDiscard) != 0 {
 		return
