@@ -323,6 +323,11 @@ func setProcessCPUProfilerTimer(hz int32) {
 	}
 }
 
+/*
+setThreadCPUProfilerHz 设定 以HZ速率， 实现指定线程的剖析解析
+
+调用settimer的时候不需要修改，在unix系统上
+*/
 // setThreadCPUProfilerHz makes any thread-specific changes required to
 // implement profiling at a rate of hz.
 // No changes required on Unix systems when using setitimer.
@@ -594,6 +599,9 @@ var crashing int32
 var testSigtrap func(info *siginfo, ctxt *sigctxt, gp *g) bool
 var testSigusr1 func(gp *g) bool
 
+/*
+看api是处理信号量，如果是_SIGPROF信号就触发对应处理
+*/
 // sighandler is invoked when a signal occurs. The global g will be
 // set to a gsignal goroutine and we will be running on the alternate
 // signal stack. The parameter g will be the value of the global g

@@ -35,10 +35,12 @@ const (
 	profBufTagCount = 1 << 14
 )
 
+/*
+cpu采样结果的结构体
+*/
 type cpuProfile struct {
-	lock mutex
-	on   bool     // profiling is on
-	log  *profBuf // profile events written here
+	on  bool     // profiling is on
+	log *profBuf // profile events written here //cpu采集结果写在这里
 
 	// extra holds extra stacks accumulated in addNonGo
 	// corresponding to profiling signals arriving on
@@ -103,6 +105,15 @@ func SetCPUProfileRate(hz int) {
 // held at the time of the signal, nor can it use substantial amounts
 // of stack.
 //
+/*
+add添加栈追踪信息到profile里面
+被信号处理器或其他有限场景触发
+不能分配内存或者获取锁，锁可能被在信号期间一直持有
+也不能使用太多数量的栈
+
+以我现在的功力，也很难彻底搞明白这些代码
+只求整体看看，有大概印象，然后流利的，调重点的说出来
+*/
 //go:nowritebarrierrec
 func (p *cpuProfile) add(tagPtr *unsafe.Pointer, stk []uintptr) {
 	// Simple cas-lock to coordinate with setcpuprofilerate.

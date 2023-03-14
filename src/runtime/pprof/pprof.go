@@ -146,7 +146,7 @@ var profiles struct {
 
 var goroutineProfile = &Profile{
 	name:  "goroutine",
-	count: countGoroutine,
+	count: countGoroutine, /*返回多少go*/
 	write: writeGoroutine,
 }
 
@@ -156,12 +156,16 @@ var threadcreateProfile = &Profile{
 	write: writeThreadCreate,
 }
 
+/*
+堆pprof的实现
+*/
 var heapProfile = &Profile{
 	name:  "heap",
 	count: countHeap,
 	write: writeHeap,
 }
 
+/*内存pprof的实际实现*/
 var allocsProfile = &Profile{
 	name:  "allocs",
 	count: countHeap, // identical to heap profile
@@ -170,13 +174,13 @@ var allocsProfile = &Profile{
 
 var blockProfile = &Profile{
 	name:  "block",
-	count: countBlock,
+	count: countBlock, /*返回多少阻塞*/
 	write: writeBlock,
 }
 
 var mutexProfile = &Profile{
 	name:  "mutex",
-	count: countMutex,
+	count: countMutex, /*返回多少锁*/
 	write: writeMutex,
 }
 
@@ -222,6 +226,8 @@ func NewProfile(name string) *Profile {
 	return p
 }
 
+/*
+~实际实现*/
 // Lookup returns the profile with the given name, or nil if no such profile exists.
 func Lookup(name string) *Profile {
 	lockProfiles()
@@ -307,6 +313,12 @@ func (p *Profile) Remove(value any) {
 	delete(p.m, value)
 }
 
+/*
+debug参数允许另外的输出
+如果是0，那么按照压缩格式输出
+如果是1，输出函数名字和行号，方便直接查看profile
+如果是2，输出panic时的goroutine栈
+*/
 // WriteTo writes a pprof-formatted snapshot of the profile to w.
 // If a write to w returns an error, WriteTo returns that error.
 // Otherwise, WriteTo returns nil.
@@ -524,6 +536,9 @@ func WriteHeapProfile(w io.Writer) error {
 	return writeHeap(w, 0)
 }
 
+/*
+~返回堆上的对象数量
+*/
 // countHeap returns the number of records in the heap profile.
 func countHeap() int {
 	n, _ := runtime.MemProfile(nil, true)
@@ -543,6 +558,7 @@ func writeAlloc(w io.Writer, debug int) error {
 
 func writeHeapInternal(w io.Writer, debug int, defaultSampleType string) error {
 	var memStats *runtime.MemStats
+	/*非主流程，先不看*/
 	if debug != 0 {
 		// Read mem stats first, so that our other allocations
 		// do not appear in the statistics.
@@ -550,6 +566,11 @@ func writeHeapInternal(w io.Writer, debug int, defaultSampleType string) error {
 		runtime.ReadMemStats(memStats)
 	}
 
+	/*
+		获取内存数据的数量
+		根据数量加一个固定值，然后内存数据的详情
+		获取到的数据存入p，p再http返回
+	*/
 	// Find out how many records there are (MemProfile(nil, true)),
 	// allocate that many records, and get the data.
 	// There's a race—more records might be added between
@@ -559,18 +580,23 @@ func writeHeapInternal(w io.Writer, debug int, defaultSampleType string) error {
 	var p []runtime.MemProfileRecord
 	n, ok := runtime.MemProfile(nil, true)
 	for {
+		/*+50固定值，为了防止少数元素加入，自从上次调用MemProfile*/
 		// Allocate room for a slightly bigger profile,
 		// in case a few more entries have been added
 		// since the call to MemProfile.
 		p = make([]runtime.MemProfileRecord, n+50)
-		n, ok = runtime.MemProfile(p, true)
+		n, ok = runtime.MemProfile(p, true) /*获取内存信息，返回结果就在p里面*/
 		if ok {
 			p = p[0:n]
 			break
 		}
 		// Profile grew; try again.
+		/*如果没有成功获取，死循环*/
 	}
 
+	/*
+		简单信息直接返回
+	*/
 	if debug == 0 {
 		return writeHeapProto(w, p, int64(runtime.MemProfileRate), defaultSampleType)
 	}
@@ -598,6 +624,7 @@ func writeHeapInternal(w io.Writer, debug int, defaultSampleType string) error {
 		total.AllocObjects, total.AllocBytes,
 		2*runtime.MemProfileRate)
 
+	/*最后拼接返回值怎么都好说。不是核心*/
 	for i := range p {
 		r := &p[i]
 		fmt.Fprintf(w, "%d: %d [%d: %d] @",
@@ -612,6 +639,9 @@ func writeHeapInternal(w io.Writer, debug int, defaultSampleType string) error {
 
 	// Print memstats information too.
 	// Pprof will ignore, but useful for people
+	/*
+		memStats结构体所有信息
+	*/
 	s := memStats
 	fmt.Fprintf(w, "\n# runtime.MemStats\n")
 	fmt.Fprintf(w, "# Alloc = %d\n", s.Alloc)
@@ -746,6 +776,9 @@ var cpu struct {
 	done      chan bool
 }
 
+/*
+
+ */
 // StartCPUProfile enables CPU profiling for the current process.
 // While profiling, the profile will be buffered and written to w.
 // StartCPUProfile returns an error if profiling is already enabled.
@@ -796,8 +829,8 @@ func profileWriter(w io.Writer) {
 	var err error
 	for {
 		time.Sleep(100 * time.Millisecond)
-		data, tags, eof := readProfile()
-		if e := b.addCPUData(data, tags); e != nil && err == nil {
+		data, tags, eof := readProfile()                           //获取采样信息
+		if e := b.addCPUData(data, tags); e != nil && err == nil { //采样信息写入b
 			err = e
 		}
 		if eof {

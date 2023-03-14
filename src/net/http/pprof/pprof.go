@@ -91,6 +91,7 @@ func init() {
 func Cmdline(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	//从os获取程序启动的参数
 	fmt.Fprint(w, strings.Join(os.Args, "\x00"))
 }
 
@@ -123,7 +124,7 @@ func Profile(w http.ResponseWriter, r *http.Request) {
 	if sec <= 0 || err != nil {
 		sec = 30
 	}
-
+	//是不是小于请求本身的超时时间
 	if durationExceedsWriteTimeout(r, float64(sec)) {
 		serveError(w, http.StatusBadRequest, "profile duration exceeds server's WriteTimeout")
 		return
@@ -133,14 +134,14 @@ func Profile(w http.ResponseWriter, r *http.Request) {
 	// because if it does it starts writing.
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", `attachment; filename="profile"`)
-	if err := pprof.StartCPUProfile(w); err != nil {
+	if err := pprof.StartCPUProfile(w); err != nil { //启动cpu采样，核心就在这里
 		// StartCPUProfile failed, so no writes yet.
 		serveError(w, http.StatusInternalServerError,
 			fmt.Sprintf("Could not enable CPU profiling: %s", err))
 		return
 	}
 	sleep(r, time.Duration(sec)*time.Second)
-	pprof.StopCPUProfile()
+	pprof.StopCPUProfile() //结束cpu采样
 }
 
 // Trace responds with the execution trace in binary form.
@@ -228,8 +229,11 @@ func Handler(name string) http.Handler {
 
 type handler string
 
+/*留爪*/
 func (name handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	/*实际逻辑实现在这个p里面
+	 */
 	p := pprof.Lookup(string(name))
 	if p == nil {
 		serveError(w, http.StatusNotFound, "Unknown profile")
@@ -253,16 +257,22 @@ func (name handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.WriteTo(w, debug)
 }
 
+/*留爪*/
 func (name handler) serveDeltaProfile(w http.ResponseWriter, r *http.Request, p *pprof.Profile, secStr string) {
 	sec, err := strconv.ParseInt(secStr, 10, 64)
 	if err != nil || sec <= 0 {
 		serveError(w, http.StatusBadRequest, `invalid value for "seconds" - must be a positive integer`)
 		return
 	}
+	/*
+		某个名字是否存在
+	*/
 	if !profileSupportsDelta[name] {
 		serveError(w, http.StatusBadRequest, `"seconds" parameter is not supported for this profile type`)
 		return
 	}
+	/*
+		判断时间是否合法*/
 	// 'name' should be a key in profileSupportsDelta.
 	if durationExceedsWriteTimeout(r, float64(sec)) {
 		serveError(w, http.StatusBadRequest, "profile duration exceeds server's WriteTimeout")
@@ -270,15 +280,21 @@ func (name handler) serveDeltaProfile(w http.ResponseWriter, r *http.Request, p 
 	}
 	debug, _ := strconv.Atoi(r.FormValue("debug"))
 	if debug != 0 {
-		serveError(w, http.StatusBadRequest, "seconds and debug params are incompatible")
+		serveError(w, http.StatusBadRequest, "seconds and debug params are incompatible") /*不相容*/
 		return
 	}
+	/*收集这个p
+	这异味着profileSupportsDelta这六个数据的返回值是大同小异的，所以才能用一个结构体接收
+	*/
 	p0, err := collectProfile(p)
 	if err != nil {
 		serveError(w, http.StatusInternalServerError, "failed to collect profile")
 		return
 	}
 
+	/*
+		等待指定时间
+	*/
 	t := time.NewTimer(time.Duration(sec) * time.Second)
 	defer t.Stop()
 
@@ -294,6 +310,8 @@ func (name handler) serveDeltaProfile(w http.ResponseWriter, r *http.Request, p 
 	case <-t.C:
 	}
 
+	/*再收集一次p
+	 */
 	p1, err := collectProfile(p)
 	if err != nil {
 		serveError(w, http.StatusInternalServerError, "failed to collect profile")
@@ -304,6 +322,7 @@ func (name handler) serveDeltaProfile(w http.ResponseWriter, r *http.Request, p 
 
 	p0.Scale(-1)
 
+	/*融合两次p*/
 	p1, err = profile.Merge([]*profile.Profile{p0, p1})
 	if err != nil {
 		serveError(w, http.StatusInternalServerError, "failed to compute delta")
@@ -332,8 +351,9 @@ func collectProfile(p *pprof.Profile) (*profile.Profile, error) {
 	return p0, nil
 }
 
+/*留爪*/
 var profileSupportsDelta = map[handler]bool{
-	"allocs":       true,
+	"allocs":       true, //内存
 	"block":        true,
 	"goroutine":    true,
 	"heap":         true,
@@ -360,6 +380,8 @@ type profileEntry struct {
 	Count int
 }
 
+/*一个总体的页面
+ */
 // Index responds with the pprof-formatted profile named by the request.
 // For example, "/debug/pprof/heap" serves the "heap" profile.
 // Index responds to a request for "/debug/pprof/" with an HTML page

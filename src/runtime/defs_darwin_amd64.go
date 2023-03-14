@@ -5,6 +5,11 @@ package runtime
 
 import "unsafe"
 
+/*
+如果一个常量必须用大写字母，但是又不希望外部引用
+可以前面加下划线
+除此之外，我想不出别的意义
+*/
 const (
 	_EINTR     = 0x4
 	_EFAULT    = 0xe
@@ -57,7 +62,7 @@ const (
 	_SIGXCPU   = 0x18
 	_SIGXFSZ   = 0x19
 	_SIGVTALRM = 0x1a
-	_SIGPROF   = 0x1b
+	_SIGPROF   = 0x1b /*留爪*/
 	_SIGWINCH  = 0x1c
 	_SIGINFO   = 0x1d
 	_SIGUSR1   = 0x1e

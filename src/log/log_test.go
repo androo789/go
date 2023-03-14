@@ -91,6 +91,7 @@ func TestAll(t *testing.T) {
 func TestOutput(t *testing.T) {
 	const testString = "test"
 	var b bytes.Buffer
+	//看了所有单元测试都是向buf输出
 	l := New(&b, "", 0)
 	l.Println(testString)
 	if expect := testString + "\n"; b.String() != expect {
@@ -144,6 +145,7 @@ func TestFlagAndPrefixSetting(t *testing.T) {
 
 func TestUTCFlag(t *testing.T) {
 	var b bytes.Buffer
+	//~向这个buf输出
 	l := New(&b, "Test:", LstdFlags)
 	l.SetFlags(Ldate | Ltime | LUTC)
 	// Verify a log message looks right in the right time zone. Quantize to the second only.

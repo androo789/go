@@ -1,0 +1,4 @@
+io这里就是writer和reader接口
+实现这两个接口的应该太多了吧，不知道有啥
+
+buffer实现了writer
