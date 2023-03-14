@@ -4503,6 +4503,10 @@ func _GC()                        { _GC() }
 func _LostSIGPROFDuringAtomic64() { _LostSIGPROFDuringAtomic64() }
 func _VDSO()                      { _VDSO() }
 
+/*
+收到SIGPROF信号时，调这个函数
+相当于一封封装，还有校验逻辑
+*/
 // Called if we receive a SIGPROF signal.
 // Called by the signal handler, may run during STW.
 //
@@ -4549,6 +4553,8 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 	// See golang.org/issue/17165.
 	getg().m.mallocing++
 
+	/*
+		实际的数据存到这里*/
 	var stk [maxCPUProfStack]uintptr
 	n := 0
 	if mp.ncgo > 0 && mp.curg != nil && mp.curg.syscallpc != 0 && mp.curg.syscallsp != 0 {
@@ -4638,13 +4644,13 @@ func setcpuprofilerate(hz int32) {
 
 	// Disable preemption, otherwise we can be rescheduled to another thread
 	// that has profiling enabled.
-	_g_ := getg()
-	_g_.m.locks++
+	_g_ := getg() //~获取当前g
+	_g_.m.locks++ //~当前g的m线程加锁。
 
 	// Stop profiler on this thread so that it is safe to lock prof.
 	// if a profiling signal came in while we had prof locked,
 	// it would deadlock.
-	setThreadCPUProfiler(0)
+	setThreadCPUProfiler(0) //~防止死锁
 
 	for !atomic.Cas(&prof.signalLock, 0, 1) {
 		osyield()
@@ -4660,7 +4666,7 @@ func setcpuprofilerate(hz int32) {
 	unlock(&sched.lock)
 
 	if hz != 0 {
-		setThreadCPUProfiler(hz)
+		setThreadCPUProfiler(hz) //在别处实现
 	}
 
 	_g_.m.locks--

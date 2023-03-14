@@ -433,6 +433,7 @@ func setProcessCPUProfiler(hz int32) {
 	setProcessCPUProfilerTimer(hz)
 }
 
+/*留爪*/
 func setThreadCPUProfiler(hz int32) {
 	setThreadCPUProfilerHz(hz)
 }

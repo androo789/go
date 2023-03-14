@@ -30,6 +30,7 @@ var (
 // The profiler is forbidden from referring to garbage-collected memory.
 
 const (
+	/*数据类型有内存，阻塞，锁，三种*/
 	// profile types
 	memProfile bucketType = 1 + iota
 	blockProfile
@@ -44,6 +45,12 @@ const (
 
 type bucketType int
 
+/*
+桶持有每次调用栈的剖析信息
+这种表示方法有点低级，继承自c语言
+这种结构体定义了桶的头
+头后面跟随者栈字，然后再后面是实际的记录数据，可能是内存记录，可能是阻塞记录
+*/
 // A bucket holds per-call-stack profiling information.
 // The representation is a bit sleazy, inherited from C.
 // This struct defines the bucket header. It is followed in
@@ -60,17 +67,28 @@ type bucketType int
 //
 //go:notinheap
 type bucket struct {
-	next    *bucket
-	allnext *bucket
-	typ     bucketType // memBucket or blockBucket (includes mutexProfile)
+	next    *bucket    /*指针*/
+	allnext *bucket    /*指针，链表？*/
+	typ     bucketType // memBucket or blockBucket (includes mutexProfile)/*数据类型*/
 	hash    uintptr
 	size    uintptr
 	nstk    uintptr
 }
 
+/*
+~桶中数据的内存记录，
+这个结构体是内存剖析的一部分
+*/
 // A memRecord is the bucket data for a bucket of type memProfile,
 // part of the memory profile.
 type memRecord struct {
+	/*
+		这下面的复杂的统计积累的三阶段方案是必须，是为了获取一个关于分配和释放的一致的快照，为了某些时间点
+		问题是分配都是实时的，但是释放是gc之后，在并发扫描期间。
+		如果我们要原始地统计他们，就需要偏向分配一点
+		因此，我们延迟信息以获得标记终止时的一致快照。
+		分配计算到下一个标记终止的快照，而扫描释放计算到前一个标记终止的快照
+	*/
 	// The following complex 3-stage scheme of stats accumulation
 	// is required to obtain a consistent picture of mallocs and frees
 	// for some point in time.
@@ -97,6 +115,16 @@ type memRecord struct {
 	//                           ┠┅┅┅┅┅┅┅┅┅┅┅P
 	//                   C+2     →    C+1    →  C
 	//
+	//
+	/*
+		因为我们不能发布一个一致性的快照，直到所有的扫描释放被计算，所以我们等待
+		直到下一次标记结束来发布上一次标记结束的快照，
+		为了实现这点，分配和释放事件被解释为 未来 堆剖析循环，并且我们仅仅发布一个循环 只要当循环中的所有的事件完成
+		具体来说
+
+		在标记结束之后，我们累加全局的堆解析循环计数器，并且累加循环c的统计，加入活跃剖析
+	*/
+	//
 	// Since we can't publish a consistent snapshot until all of
 	// the sweep frees are accounted for, we wait until the next
 	// mark termination ("MT" above) to publish the previous mark
@@ -113,10 +141,14 @@ type memRecord struct {
 	// profile cycle counter and accumulate the stats from cycle C
 	// into the active profile.
 
+	/*这是当前已经发布的剖析，一个剖析循环可以被累计加入这个变量中，只要当它完成*/
 	// active is the currently published profile. A profiling
 	// cycle can be accumulated into active once its complete.
 	active memRecordCycle
 
+	/*这个变量记录了剖析事件，是我们正在计数的循环的那些事件，但是这些剖析还未发布
+	这个环被索引，被全局堆剖析索引，并且保存了循环c c+1 c+2
+	不像active变量，这些计算仅仅为了一个单一循环，不是在循环中累计的*/
 	// future records the profile events we're counting for cycles
 	// that have not yet been published. This is ring buffer
 	// indexed by the global heap profile cycle C and stores
@@ -124,6 +156,7 @@ type memRecord struct {
 	// only for a single cycle; they are not cumulative across
 	// cycles.
 	//
+	/*我们保存循环C在这里，是因为那有一个窗口时期，就是当c变为活跃循环，以及，把c放入active变量中的的时间窗口*/
 	// We store cycle C here because there's a window between when
 	// C becomes the active cycle and when we've flushed it to
 	// active.
@@ -152,9 +185,9 @@ type blockRecord struct {
 }
 
 var (
-	mbuckets atomic.UnsafePointer // *bucket, memory profile buckets
-	bbuckets atomic.UnsafePointer // *bucket, blocking profile buckets
-	xbuckets atomic.UnsafePointer // *bucket, mutex profile buckets
+	mbuckets atomic.UnsafePointer // *bucket, memory profile buckets /*记录了内存剖析的桶*/
+	bbuckets atomic.UnsafePointer // *bucket, blocking profile buckets /*记录了阻塞剖析的桶*/
+	xbuckets atomic.UnsafePointer // *bucket, mutex profile buckets /*记录了锁的剖析的桶*/
 	buckhash atomic.UnsafePointer // *buckhashArray
 
 	mProfCycle mProfCycleHolder
@@ -239,7 +272,7 @@ func (b *bucket) mp() *memRecord {
 	if b.typ != memProfile {
 		throw("bad use of bucket.mp")
 	}
-	data := add(unsafe.Pointer(b), unsafe.Sizeof(*b)+b.nstk*unsafe.Sizeof(uintptr(0)))
+	data := add(unsafe.Pointer(b), unsafe.Sizeof(*b)+b.nstk*unsafe.Sizeof(uintptr(0))) /*内存偏移*/
 	return (*memRecord)(data)
 }
 
@@ -312,7 +345,7 @@ func stkbucket(typ bucketType, size uintptr, stk []uintptr, alloc bool) *bucket 
 	b.size = size
 
 	var allnext *atomic.UnsafePointer
-	if typ == memProfile {
+	if typ == memProfile { /*如果是内存，allnext就是内存的桶*/
 		allnext = &mbuckets
 	} else if typ == mutexProfile {
 		allnext = &xbuckets
@@ -414,21 +447,28 @@ func mProf_PostSweep() {
 	unlock(&profMemActiveLock)
 }
 
+/*每次内存分配实际调用来记录的函数
+被malloc调用来记录剖析块
+*/
 // Called by malloc to record a profiled block.
 func mProf_Malloc(p unsafe.Pointer, size uintptr) {
 	var stk [maxStack]uintptr
-	nstk := callers(4, stk[:])
+	nstk := callers(4, stk[:]) /*调用栈可能是*/
 
+	/*怎么获取的这个索引
+	记录到+2里面
+	*/
 	index := (mProfCycle.read() + 2) % uint32(len(memRecord{}.future))
 
+	/*新建一个bucket*/
 	b := stkbucket(memProfile, size, stk[:nstk], true)
 	mp := b.mp()
 	mpc := &mp.future[index]
 
-	lock(&profMemFutureLock[index])
-	mpc.allocs++
-	mpc.alloc_bytes += size
-	unlock(&profMemFutureLock[index])
+	//lock(&profMemFutureLock[index])
+	mpc.allocs++            /*增加其中的大小*/
+	mpc.alloc_bytes += size /*增加其中的字节size*/
+	//unlock(&profMemFutureLock[index])
 
 	// Setprofilebucket locks a bunch of other mutexes, so we call it outside of
 	// the profiler locks. This reduces potential contention and chances of
@@ -570,6 +610,16 @@ func (r *StackRecord) Stack() []uintptr {
 	return r.Stack0[0:]
 }
 
+/*这个变量控制 内存分配被记录和报告的百分比，记录在内存剖析中
+这个分析器目的是采样每这么多个比特被分配就采样一次
+
+为了包含每一个分配块在剖析中，就要设置这个变量为1
+
+这个处理内存分析的工具假设了剖析比率是恒定的，在程序生命周期中，并且等于当前的值。
+程序改变内存剖析速率只能有一次，尽可能早的再执行程序的过程中。（比如在main开始的时候）
+
+这里默认值是每512kb一次
+*/
 // MemProfileRate controls the fraction of memory allocations
 // that are recorded and reported in the memory profile.
 // The profiler aims to sample an average of
@@ -628,6 +678,23 @@ func (r *MemProfileRecord) Stack() []uintptr {
 	return r.Stack0[0:]
 }
 
+/*
+留爪
+
+返回 每个分配站点的内存分配和释放的剖析
+返回值n表示，当前内存中的记录数量
+如果p的数量大于等级n，那么本函数把剖析结果复制给p，并返回n和true
+如果p的数量小于n，那么本函数不修改p。返回n和false
+
+如果inuseZero是true，那么剖析结果包括***类型的分配站点，就是包括已经被分配但是已经释放返回给runtime的了
+
+返回的剖析结果可能有两个垃圾回收周期那么长。
+这样将会避免剖析结果向分配扭曲；因为分配是实时发生的
+但是释放是延迟的，延迟直到垃圾回收器扫描才释放，剖析结果仅仅技术那写有机会被垃圾回收器释放的分配
+
+这就核心的函数
+
+*/
 // MemProfile returns a profile of memory allocated and freed per allocation
 // site.
 //

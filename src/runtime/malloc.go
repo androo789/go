@@ -836,6 +836,10 @@ func (c *mcache) nextFree(spc spanClass) (v gclinkptr, s *mspan, shouldhelpgc bo
 	return
 }
 
+/*实际分配内存的函数
+给一个对象一些比特
+小对象被分配，被每个p的缓存释放列表分配，
+大的对象，被直接从堆分配*/
 // Allocate an object of size bytes.
 // Small objects are allocated from the per-P cache's free lists.
 // Large objects (> 32 kB) are allocated straight from the heap.
@@ -1106,11 +1110,13 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 		asanunpoison(x, userSize)
 	}
 
+	/*必须大于0，*/
 	if rate := MemProfileRate; rate > 0 {
 		// Note cache c only valid while m acquired; see #47302
 		if rate != 1 && size < c.nextSample {
 			c.nextSample -= size
 		} else {
+			/*~调用采样的地方*/
 			profilealloc(mp, x, size)
 		}
 	}
@@ -1229,6 +1235,7 @@ func reflect_unsafe_NewArray(typ *_type, n int) unsafe.Pointer {
 	return newarray(typ, n)
 }
 
+/*封装一层，mProf_Malloc才是实际记录的*/
 func profilealloc(mp *m, x unsafe.Pointer, size uintptr) {
 	c := getMCache(mp)
 	if c == nil {

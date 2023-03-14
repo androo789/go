@@ -347,6 +347,7 @@ func raiseproc(sig uint32) {
 }
 func raiseproc_trampoline()
 
+/*留爪*/
 //go:nosplit
 //go:cgo_unsafe_args
 func setitimer(mode int32, new, old *itimerval) {
